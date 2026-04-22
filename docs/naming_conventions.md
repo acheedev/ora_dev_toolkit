@@ -1,4 +1,4 @@
-# **📘 ora_dev_toolkit — Naming Convention Guide**
+# **ora_dev_toolkit — Naming Convention Guide**
 
 This document defines the official naming conventions for all modules, packages, files, and directories in the **ora_dev_toolkit** repository.
 Consistency is the foundation of a maintainable toolkit, and this guide ensures every new utility fits cleanly into the project’s structure.
