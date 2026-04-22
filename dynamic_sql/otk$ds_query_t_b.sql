@@ -1,0 +1,143 @@
+CREATE OR REPLACE TYPE BODY otk$ds_query_t IS
+
+    ----------------------------------------------------------------------
+    -- Add SELECT columns
+    ----------------------------------------------------------------------
+    MEMBER FUNCTION select_cols(p_cols SYS.ODCIVARCHAR2LIST)
+        RETURN otk$ds_query_t
+    IS
+    BEGIN
+        IF p_cols IS NOT NULL THEN
+            FOR i IN 1 .. p_cols.COUNT LOOP
+                SELF.select_list.EXTEND;
+                SELF.select_list(SELF.select_list.COUNT) :=
+                    otk$assert_utils.simple_name(p_cols(i));
+            END LOOP;
+        END IF;
+
+        RETURN SELF;
+    END select_cols;
+
+
+    ----------------------------------------------------------------------
+    -- Set FROM table
+    ----------------------------------------------------------------------
+    MEMBER FUNCTION from_table(p_table VARCHAR2)
+        RETURN otk$ds_query_t
+    IS
+    BEGIN
+        SELF.table_name := otk$assert_utils.object_name(p_table);
+        RETURN SELF;
+    END from_table;
+
+
+    ----------------------------------------------------------------------
+    -- Add WHERE clause + optional bind
+    ----------------------------------------------------------------------
+    MEMBER FUNCTION where_clause(
+        p_condition VARCHAR2,
+        p_bind      ANYDATA DEFAULT NULL
+    ) RETURN otk$ds_query_t
+    IS
+    BEGIN
+        IF p_condition IS NOT NULL THEN
+            SELF.where_clauses.EXTEND;
+            SELF.where_clauses(SELF.where_clauses.COUNT) := p_condition;
+        END IF;
+
+        IF p_bind IS NOT NULL THEN
+            SELF.bind_values.EXTEND;
+            SELF.bind_values(SELF.bind_values.COUNT) :=
+                ANYDATA.AccessVarchar2(p_bind);
+        END IF;
+
+        RETURN SELF;
+    END where_clause;
+
+
+    ----------------------------------------------------------------------
+    -- ORDER BY
+    ----------------------------------------------------------------------
+    MEMBER FUNCTION order_by(p_col VARCHAR2)
+        RETURN otk$ds_query_t
+    IS
+    BEGIN
+        SELF.order_by_clause := otk$assert_utils.simple_name(p_col);
+        RETURN SELF;
+    END order_by;
+
+
+    ----------------------------------------------------------------------
+    -- FETCH FIRST n ROWS ONLY
+    ----------------------------------------------------------------------
+    MEMBER FUNCTION fetch_first(p_rows PLS_INTEGER)
+        RETURN otk$ds_query_t
+    IS
+    BEGIN
+        SELF.fetch_rows := p_rows;
+        RETURN SELF;
+    END fetch_first;
+
+
+    ----------------------------------------------------------------------
+    -- Build final SQL + bind array
+    ----------------------------------------------------------------------
+    MEMBER PROCEDURE build(
+        p_sql   OUT VARCHAR2,
+        p_binds OUT SYS.ODCIVARCHAR2LIST
+    )
+    IS
+        l_sql VARCHAR2(32767);
+    BEGIN
+        ------------------------------------------------------------------
+        -- SELECT clause
+        ------------------------------------------------------------------
+        l_sql := 'SELECT ';
+
+        IF SELF.select_list.COUNT = 0 THEN
+            l_sql := l_sql || '*';
+        ELSE
+            l_sql := l_sql || LISTAGG(SELF.select_list(i), ', ')
+                WITHIN GROUP (ORDER BY i)
+                OVER ();
+        END IF;
+
+        ------------------------------------------------------------------
+        -- FROM clause
+        ------------------------------------------------------------------
+        l_sql := l_sql || ' FROM ' || SELF.table_name;
+
+        ------------------------------------------------------------------
+        -- WHERE clauses
+        ------------------------------------------------------------------
+        IF SELF.where_clauses.COUNT > 0 THEN
+            l_sql := l_sql || ' WHERE ' ||
+                LISTAGG(SELF.where_clauses(i), ' AND ')
+                WITHIN GROUP (ORDER BY i)
+                OVER ();
+        END IF;
+
+        ------------------------------------------------------------------
+        -- ORDER BY
+        ------------------------------------------------------------------
+        IF SELF.order_by_clause IS NOT NULL THEN
+            l_sql := l_sql || ' ORDER BY ' || SELF.order_by_clause;
+        END IF;
+
+        ------------------------------------------------------------------
+        -- FETCH FIRST
+        ------------------------------------------------------------------
+        IF SELF.fetch_rows IS NOT NULL THEN
+            l_sql := l_sql || ' FETCH FIRST ' || SELF.fetch_rows || ' ROWS ONLY';
+        END IF;
+
+        ------------------------------------------------------------------
+        -- Output
+        ------------------------------------------------------------------
+        p_sql := l_sql;
+        p_binds := SELF.bind_values;
+
+    END build;
+
+END;
+/
