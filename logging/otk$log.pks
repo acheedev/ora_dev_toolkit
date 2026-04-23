@@ -9,27 +9,37 @@ CREATE OR REPLACE PACKAGE otk$log IS
     c_level_debug CONSTANT VARCHAR2(10) := 'DEBUG';
 
     ----------------------------------------------------------------------
-    -- Global log level (default = INFO)
+    -- Stateless context helpers
     ----------------------------------------------------------------------
-    PROCEDURE set_level(p_level IN VARCHAR2);
-    FUNCTION  get_level RETURN VARCHAR2;
+    FUNCTION ctx(p_key VARCHAR2, p_value VARCHAR2) RETURN CLOB;
+    FUNCTION ctx_merge(p_ctx1 CLOB, p_ctx2 CLOB) RETURN CLOB;
 
     ----------------------------------------------------------------------
-    -- Context management (v3)
+    -- Stateless logging API
     ----------------------------------------------------------------------
-    PROCEDURE context(p_key IN VARCHAR2, p_value IN VARCHAR2);
-    PROCEDURE clear_context;
+    PROCEDURE error(
+        message IN VARCHAR2,
+        context IN CLOB DEFAULT NULL,
+        payload IN CLOB DEFAULT NULL
+    );
 
-    -- JSON API
-    PROCEDURE json(p_json IN CLOB);
+    PROCEDURE warn(
+        message IN VARCHAR2,
+        context IN CLOB DEFAULT NULL,
+        payload IN CLOB DEFAULT NULL
+    );
 
-    ----------------------------------------------------------------------
-    -- Logging API
-    ----------------------------------------------------------------------
-    PROCEDURE error(p_message IN VARCHAR2 DEFAULT NULL);
-    PROCEDURE warn (p_message IN VARCHAR2);
-    PROCEDURE info (p_message IN VARCHAR2);
-    PROCEDURE debug(p_message IN VARCHAR2);
+    PROCEDURE info(
+        message IN VARCHAR2,
+        context IN CLOB DEFAULT NULL,
+        payload IN CLOB DEFAULT NULL
+    );
+
+    PROCEDURE debug(
+        message IN VARCHAR2,
+        context IN CLOB DEFAULT NULL,
+        payload IN CLOB DEFAULT NULL
+    );
 
     ----------------------------------------------------------------------
     -- Utilities

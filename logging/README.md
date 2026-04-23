@@ -1,33 +1,34 @@
 
-
 # Logging Subsystem (`otk$log` and `otk$log_json`)
 
-The `logging` module provides a full‑featured, production‑grade logging framework
-for the `ora_dev_toolkit`. It includes two parallel implementations:
+The `logging` module provides a fully **stateless**, production‑grade logging
+framework for the `ora_dev_toolkit`. It includes two parallel engines:
 
-- **`otk$log`** — Classic logger using CLOB storage (compatible with Oracle 11g → 23c)
+- **`otk$log`** — Classic CLOB‑based logger (Oracle 11g → 23c)
 - **`otk$log_json`** — JSON‑native logger using the new `JSON` data type (Oracle 23ai+)
 
-Both modules expose the same ergonomic API:
+Both engines expose the same API and behave identically. The only difference is
+the underlying storage type.
 
-```
-otk$log.error()
-otk$log.warn()
-otk$log.info()
-otk$log.debug()
-```
+This module is designed to be safe for **connection pools**, **APEX**, **ORDS**,
+**JDBC**, **Python**, and any environment where session state must not leak.
 
-and the JSON‑native version mirrors this exactly:
+---
 
-```
-otk$log_json.error()
-otk$log_json.warn()
-otk$log_json.info()
-otk$log_json.debug()
-```
+## Stateless Design
 
-This gives the toolkit a consistent developer experience across all supported
-Oracle versions.
+Unlike many PL/SQL logging utilities, this module **does not use global
+variables**. All logging calls are self‑contained and explicit.
+
+This avoids:
+
+- Session bleed in connection pools
+- Cross‑request contamination
+- Hidden state
+- Debug level leakage
+- Context/payload persistence
+
+Every log entry is fully defined by the parameters passed into the logging call.
 
 ---
 
@@ -35,38 +36,44 @@ Oracle versions.
 
 ### ✔ Logging Levels
 - `ERROR` — captures SQLERRM, stack, backtrace
-- `WARN` — non‑fatal issues
+- `WARN` — recoverable issues
 - `INFO` — operational events
 - `DEBUG` — verbose diagnostics
 
-### ✔ Autonomous Transactions
-All log writes survive caller rollbacks.
-
-### ✔ Context Logging (JSON object)
-Attach metadata to the next log entry:
+### ✔ Stateless Context Logging
+Attach metadata to a log entry:
 
 ```plsql
-otk$log.context('module', 'user_sync');
-otk$log.context('action', 'create');
+otk$log.info(
+    message => 'User created',
+    context => otk$log.ctx('module','user_sync')
+);
+```
+
+Or merge multiple context entries:
+
+```plsql
+otk$log.info(
+    message => 'User created',
+    context => otk$log.ctx_merge(
+        otk$log.ctx('module','user_sync'),
+        otk$log.ctx('user','alice')
+    )
+);
 ```
 
 ### ✔ JSON Payload Logging
-Attach structured JSON to the next log entry:
+Attach structured JSON to a log entry:
 
 ```plsql
-otk$log.json(l_payload_json);
+otk$log.info(
+    message => 'Submitting API request',
+    payload => l_request_json
+);
 ```
 
-Useful for:
-- API request/response bodies
-- Dynamic SQL metadata
-- Automation payloads
-- Ansible Tower / REST integrations
-
-### ✔ Global Log Level Filtering
-```plsql
-otk$log.set_level('WARN');
-```
+### ✔ Autonomous Transactions
+All log writes survive caller rollbacks.
 
 ### ✔ Utilities
 - `purge(days)`
@@ -80,12 +87,12 @@ otk$log.set_level('WARN');
 ### 1. Classic Logger (CLOB-based)
 Table: `otk_error_log`
 
-Columns include:
+Columns:
 - `context_data` (CLOB)
 - `json_payload` (CLOB)
 - `error_stack`, `error_backtrace` (CLOB)
 
-This version is portable across all Oracle editions.
+Compatible with all Oracle versions.
 
 ---
 
@@ -102,7 +109,7 @@ Benefits:
 - Native JSON operators
 - Automatic validation
 
-This is the preferred engine when running on 23ai+.
+Preferred when running on 23ai+.
 
 ---
 
@@ -137,7 +144,11 @@ BEGIN
     SELECT 1 / 0 INTO v FROM dual;
 EXCEPTION
     WHEN OTHERS THEN
-        otk$log.error('Division failed');
+        otk$log.error(
+            message => 'Division failed',
+            context => otk$log.ctx('module','calc'),
+            payload => JSON_OBJECT('input' VALUE '1/0')
+        );
         RAISE;
 END;
 /
@@ -146,16 +157,32 @@ END;
 ### Info + JSON Payload
 
 ```plsql
-otk$log.context('module', 'api_sync');
-otk$log.json(l_request_json);
-otk$log.info('Submitting API request');
+otk$log.info(
+    message => 'Submitting API request',
+    payload => l_request_json
+);
 ```
 
 ### Debug Logging
 
 ```plsql
-otk$log.set_level('DEBUG');
-otk$log.debug('SQL: ' || l_sql);
+otk$log.debug(
+    message => 'SQL about to execute',
+    payload => JSON_OBJECT('sql' VALUE l_sql)
+);
+```
+
+### Search & Recent
+
+```plsql
+l_rc := otk$log.get_recent(10);
+l_rc := otk$log.search('timeout');
+```
+
+### Purge
+
+```plsql
+otk$log.purge(30); -- delete logs older than 30 days
 ```
 
 ---
@@ -165,9 +192,9 @@ otk$log.debug('SQL: ' || l_sql);
 | Oracle Version | Recommended Logger |
 |----------------|--------------------|
 | 11g → 23c      | `otk$log` (CLOB)   |
-| 23ai+          | `otk$log_json` (native JSON) |
+| 23ai+          | `otk$log_json`     |
 
-Both modules can coexist in the same database.
+Both can coexist in the same database.
 
 ---
 
@@ -176,7 +203,7 @@ Both modules can coexist in the same database.
 - Correlation IDs
 - Session‑level context stacks
 - Structured event types
-- Integration with dynamic SQL builder
 - Performance timers (`otk$log.profile()`)
+- Integration with dynamic SQL builder
 
 ---

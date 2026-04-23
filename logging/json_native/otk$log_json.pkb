@@ -1,55 +1,25 @@
 CREATE OR REPLACE PACKAGE BODY otk$log_json IS
 
-    g_log_level    VARCHAR2(10) := c_level_info;
-    g_context      JSON;
-    g_json_payload JSON;
-
-    PROCEDURE set_level(p_level IN VARCHAR2) IS
+    FUNCTION ctx(p_key VARCHAR2, p_value VARCHAR2) RETURN JSON IS
     BEGIN
-        g_log_level := UPPER(p_level);
+        RETURN JSON_OBJECT(p_key VALUE p_value);
     END;
 
-    FUNCTION get_level RETURN VARCHAR2 IS
+    FUNCTION ctx_merge(p_ctx1 JSON, p_ctx2 JSON) RETURN JSON IS
     BEGIN
-        RETURN g_log_level;
-    END;
-
-    PROCEDURE context(p_key IN VARCHAR2, p_value IN VARCHAR2) IS
-    BEGIN
-        IF g_context IS NULL THEN
-            g_context := JSON_OBJECT(p_key VALUE p_value);
-        ELSE
-            g_context := g_context || JSON_OBJECT(p_key VALUE p_value);
-        END IF;
-    END;
-
-    PROCEDURE clear_context IS
-    BEGIN
-        g_context := NULL;
-    END;
-
-    PROCEDURE json(p_json IN JSON) IS
-    BEGIN
-        g_json_payload := p_json;
-    END;
-
-    FUNCTION level_enabled(p_level VARCHAR2) RETURN BOOLEAN IS
-    BEGIN
-        CASE g_log_level
-            WHEN c_level_debug THEN RETURN TRUE;
-            WHEN c_level_info  THEN RETURN p_level IN (c_level_info, c_level_warn, c_level_error);
-            WHEN c_level_warn  THEN RETURN p_level IN (c_level_warn, c_level_error);
-            WHEN c_level_error THEN RETURN p_level = c_level_error;
-        END CASE;
-        RETURN TRUE;
+        IF p_ctx1 IS NULL THEN RETURN p_ctx2; END IF;
+        IF p_ctx2 IS NULL THEN RETURN p_ctx1; END IF;
+        RETURN p_ctx1 || p_ctx2;
     END;
 
     PROCEDURE write_log(
-        p_level       IN VARCHAR2,
-        p_message     IN VARCHAR2,
-        p_sqlerrm     IN VARCHAR2 DEFAULT NULL,
-        p_stack       IN CLOB    DEFAULT NULL,
-        p_backtrace   IN CLOB    DEFAULT NULL
+        p_level     IN VARCHAR2,
+        p_message   IN VARCHAR2,
+        p_context   IN JSON,
+        p_payload   IN JSON,
+        p_sqlerrm   IN VARCHAR2 DEFAULT NULL,
+        p_stack     IN CLOB DEFAULT NULL,
+        p_backtrace IN CLOB DEFAULT NULL
     ) IS
         PRAGMA AUTONOMOUS_TRANSACTION;
     BEGIN
@@ -64,8 +34,8 @@ CREATE OR REPLACE PACKAGE BODY otk$log_json IS
         )
         VALUES (
             p_level,
-            g_context,
-            g_json_payload,
+            p_context,
+            p_payload,
             p_message,
             p_sqlerrm,
             p_stack,
@@ -73,45 +43,37 @@ CREATE OR REPLACE PACKAGE BODY otk$log_json IS
         );
 
         COMMIT;
-
-        g_json_payload := NULL;
     END;
 
-    PROCEDURE error(p_message IN VARCHAR2 DEFAULT NULL) IS
+    PROCEDURE error(message IN VARCHAR2, context IN JSON DEFAULT NULL, payload IN JSON DEFAULT NULL) IS
         l_sqlerrm VARCHAR2(4000);
     BEGIN
-        IF NOT level_enabled(c_level_error) THEN RETURN; END IF;
-
         l_sqlerrm := SUBSTR(SQLERRM, 1, 4000);
 
         write_log(
             p_level     => c_level_error,
-            p_message   => p_message,
+            p_message   => message,
+            p_context   => context,
+            p_payload   => payload,
             p_sqlerrm   => l_sqlerrm,
             p_stack     => DBMS_UTILITY.format_error_stack,
             p_backtrace => DBMS_UTILITY.format_error_backtrace
         );
     END;
 
-    PROCEDURE warn(p_message IN VARCHAR2) IS
+    PROCEDURE warn(message IN VARCHAR2, context IN JSON DEFAULT NULL, payload IN JSON DEFAULT NULL) IS
     BEGIN
-        IF level_enabled(c_level_warn) THEN
-            write_log(c_level_warn, p_message);
-        END IF;
+        write_log(c_level_warn, message, context, payload);
     END;
 
-    PROCEDURE info(p_message IN VARCHAR2) IS
+    PROCEDURE info(message IN VARCHAR2, context IN JSON DEFAULT NULL, payload IN JSON DEFAULT NULL) IS
     BEGIN
-        IF level_enabled(c_level_info) THEN
-            write_log(c_level_info, p_message);
-        END IF;
+        write_log(c_level_info, message, context, payload);
     END;
 
-    PROCEDURE debug(p_message IN VARCHAR2) IS
+    PROCEDURE debug(message IN VARCHAR2, context IN JSON DEFAULT NULL, payload IN JSON DEFAULT NULL) IS
     BEGIN
-        IF level_enabled(c_level_debug) THEN
-            write_log(c_level_debug, p_message);
-        END IF;
+        write_log(c_level_debug, message, context, payload);
     END;
 
     PROCEDURE purge(p_days IN NUMBER) IS
@@ -139,7 +101,7 @@ CREATE OR REPLACE PACKAGE BODY otk$log_json IS
         OPEN l_rc FOR
             SELECT *
             FROM otk_error_log_json
-            WHERE message      LIKE '%' || p_keyword || '%'
+            WHERE message LIKE '%' || p_keyword || '%'
                OR sqlerrm_text LIKE '%' || p_keyword || '%';
         RETURN l_rc;
     END;
